@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import dbConnect from "@/lib/dbConnect";
-import User from "@/models/user.model";
+import User from "@/models/user/user.model";
 
 export async function getMongoUserId() {
   const { userId, sessionClaims } = await auth();

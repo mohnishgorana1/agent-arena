@@ -1,12 +1,22 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { motion } from "motion/react";
-import { PanelLeftClose, PanelLeftOpen, ShieldAlert, Layers, HardHat, Sprout, BookOpen, User } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "motion/react";
+import { 
+  PanelLeftClose, PanelLeftOpen, ShieldAlert, Layers, HardHat, 
+  Sprout, BookOpen, User, ChevronDown, Plus, MessageSquare, 
+  MoreHorizontal, Pencil, Pin, PinOff, Check, X
+} from "lucide-react";
 import { UserButton, useAuth } from "@clerk/nextjs";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import ThemeToggle from "./themes/ThemeToggle";
+import { 
+  getUserConversationsAction, 
+  renameChatAction, 
+  togglePinChatAction 
+} from "@/lib/actions/chai-gpt/conversation.actions";
 
 const AGENTS = [
   { id: "risk", name: "Risk Analyzer", icon: ShieldAlert, href: "/risk-analyzer/chat/risk" },
@@ -16,54 +26,178 @@ const AGENTS = [
   { id: "prep", name: "Prep Mentor", icon: BookOpen, href: "/chat/prep" },
 ];
 
+// ✨ Naya Sub-component: Har ek chat item ka apna isolated state handle karne ke liye
+function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(chat.title);
+  
+  const menuRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  const queryClient = useQueryClient();
+  const isChatActive = pathname === `/chai-gpt/chat/${chat.id}`;
+
+  // Close menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
+  // Focus input on edit
+  useEffect(() => {
+    if (isEditing && inputRef.current) inputRef.current.focus();
+  }, [isEditing]);
+
+  const renameMutation = useMutation({
+    mutationFn: async (newTitle: string) => renameChatAction(chat.id, newTitle),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] }),
+  });
+
+  const pinMutation = useMutation({
+    mutationFn: async (isPinned: boolean) => togglePinChatAction(chat.id, isPinned),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] }),
+  });
+
+  const handleRenameSubmit = () => {
+    if (editTitle.trim() && editTitle !== chat.title) {
+      renameMutation.mutate(editTitle);
+    } else {
+      setEditTitle(chat.title); // reset
+    }
+    setIsEditing(false);
+  };
+
+  return (
+    <div className="relative group">
+      {isEditing ? (
+        // Inline Edit Mode
+        <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-subtle bg-panel shadow-sm">
+          <input
+            ref={inputRef}
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleRenameSubmit();
+              if (e.key === "Escape") { setIsEditing(false); setEditTitle(chat.title); }
+            }}
+            className="flex-1 min-w-0 bg-transparent text-[12px] text-txt focus:outline-none"
+          />
+          <button onClick={handleRenameSubmit} className="text-green-500 hover:text-green-400">
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => { setIsEditing(false); setEditTitle(chat.title); }} className="text-red-500 hover:text-red-400">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        // Normal Link View
+        <div className={`flex items-center justify-between rounded-md transition-all duration-200 border group-hover:pr-1 ${
+          isChatActive
+            ? "bg-panel border-subtle text-txt font-medium shadow-sm"
+            : "border-transparent text-muted hover:text-txt hover:bg-subtle/30"
+        }`}>
+          <Link
+            href={`/chai-gpt/chat/${chat.id}`}
+            className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0"
+          >
+            {chat.isPinned ? (
+              <Pin className="h-3 w-3 shrink-0 text-txt rotate-45" />
+            ) : (
+              <MessageSquare className="h-3 w-3 shrink-0" />
+            )}
+            <span className="text-[12px] truncate">{chat.title}</span>
+          </Link>
+
+          {/* 3 Dots Button (Visible on Hover/Active) */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              setMenuOpen(!menuOpen);
+            }}
+            className={`p-1 rounded-md transition-opacity duration-200 ${menuOpen || isChatActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"} hover:bg-subtle`}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* 3 Dots Dropdown Menu */}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            ref={menuRef}
+            initial={{ opacity: 0, scale: 0.95, y: -5 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -5 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-1 w-32 rounded-lg border border-subtle bg-panel p-1 shadow-lg z-50 flex flex-col gap-0.5"
+          >
+            <button
+              onClick={() => { setMenuOpen(false); setIsEditing(true); }}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium text-txt hover:bg-subtle transition-colors w-full text-left"
+            >
+              <Pencil className="h-3 w-3" /> Rename
+            </button>
+            <button
+              onClick={() => { setMenuOpen(false); pinMutation.mutate(!chat.isPinned); }}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium text-txt hover:bg-subtle transition-colors w-full text-left"
+            >
+              {chat.isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+              {chat.isPinned ? "Unpin Chat" : "Pin Chat"}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isChaiGptOpen, setIsChaiGptOpen] = useState(false);
   const pathname = usePathname();
 
   const { isLoaded, userId } = useAuth();
   const isSignedIn = !!userId;
 
+  const { data: chaiChats = [] } = useQuery({
+    queryKey: ["conversations", "chai-gpt"],
+    queryFn: async () => {
+      const res = await getUserConversationsAction("chai-gpt");
+      if (res.success && res.conversations) return res.conversations;
+      return [];
+    },
+    enabled: isSignedIn,
+  });
+
   return (
     <motion.aside
       animate={{ width: isCollapsed ? 80 : 288 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      className="relative z-40 flex h-dvh flex-col justify-between border-r border-subtle bg-base p-4 shadow-xl shrink-0 overflow-hidden"
+      className="relative z-40 flex h-[100dvh] flex-col justify-between border-r border-subtle bg-base p-4 shadow-xl shrink-0 overflow-hidden"
     >
-      {/* SCROLLABLE AREA: Sirf upper content scroll hoga (min-h-0 zaruri hai flexbox scroll ke liye) */}
       <div className="flex flex-col gap-8 flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-thin-scrollbar pb-4">
 
         <div className={`group relative flex h-10 shrink-0 items-center ${isCollapsed ? "justify-center" : "justify-between px-1"}`}>
-          {/* Logo Link */}
           <Link
             href={"/"}
-            className={`flex items-center gap-3 transition-all duration-200 ${isCollapsed
-              ? "absolute opacity-100 group-hover:opacity-0 group-hover:pointer-events-none"
-              : "relative opacity-100"
-              }`}
+            className={`flex items-center gap-3 transition-all duration-200 ${isCollapsed ? "absolute opacity-100 group-hover:opacity-0 group-hover:pointer-events-none" : "relative opacity-100"}`}
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-subtle bg-panel text-sm font-bold text-txt shadow-sm">
-              A
-            </div>
-            {!isCollapsed && (
-              <span className="font-sans text-[14px] font-semibold tracking-tight text-txt whitespace-nowrap">
-                AgentArena
-              </span>
-            )}
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-subtle bg-panel text-sm font-bold text-txt shadow-sm">A</div>
+            {!isCollapsed && <span className="font-sans text-[14px] font-semibold tracking-tight text-txt whitespace-nowrap">AgentArena</span>}
           </Link>
 
-          {/* Toggle Buttons */}
           {isCollapsed ? (
-            <button
-              onClick={() => setIsCollapsed(false)}
-              className="absolute z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted opacity-0 transition-all duration-200 hover:bg-subtle hover:text-txt group-hover:opacity-100"
-            >
+            <button onClick={() => setIsCollapsed(false)} className="absolute z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted opacity-0 transition-all duration-200 hover:bg-subtle hover:text-txt group-hover:opacity-100">
               <PanelLeftOpen className="h-4 w-4" />
             </button>
           ) : (
-            <button
-              onClick={() => setIsCollapsed(true)}
-              className="z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-txt"
-            >
+            <button onClick={() => setIsCollapsed(true)} className="z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-txt">
               <PanelLeftClose className="h-4 w-4" />
             </button>
           )}
@@ -71,14 +205,65 @@ export default function Sidebar() {
 
         <div className="flex flex-col gap-2">
           {!isCollapsed && <span className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-widest text-muted shrink-0">Agents</span>}
+          
           {AGENTS.map((agent) => {
-            const isActive = pathname === agent.href;
+            const isActive = pathname.startsWith(agent.href);
             const Icon = agent.icon;
+
+            if (agent.id === "chai-gpt") {
+              return (
+                <div key={agent.id} className="flex flex-col gap-1">
+                  <button
+                    onClick={() => {
+                      if (isCollapsed) {
+                        setIsCollapsed(false);
+                        setIsChaiGptOpen(true);
+                      } else setIsChaiGptOpen(!isChaiGptOpen);
+                    }}
+                    className={`relative flex shrink-0 items-center rounded-lg cursor-pointer ${isCollapsed ? "mx-auto h-11 w-11 justify-center p-0" : "w-full justify-between gap-4 px-3 py-2.5"} ${isActive ? "text-txt" : "text-muted hover:text-txt"}`}
+                  >
+                    {isActive && <motion.div layoutId="active-tab" className="absolute inset-0 rounded-lg border border-subtle bg-panel shadow-sm" transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
+                    <div className="flex items-center gap-4 relative z-10">
+                      <Icon className="h-4 w-4 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                      {!isCollapsed && <span className={`truncate font-sans text-[13px] tracking-wide ${isActive ? "font-semibold" : "font-medium"}`}>{agent.name}</span>}
+                    </div>
+                    {!isCollapsed && <ChevronDown className={`h-4 w-4 shrink-0 relative z-10 transition-transform duration-200 ${isChaiGptOpen ? "rotate-180" : ""}`} />}
+                  </button>
+
+                  <AnimatePresence>
+                    {!isCollapsed && isChaiGptOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        // Note: overflow-hidden yahan visible rahta hai height animate karte hue
+                        // Dropdown z-index issue fix karne ke liye hum use "overflow-visible" dete hain completion ke baad
+                        transition={{ duration: 0.2 }}
+                        className="flex flex-col gap-0.5 overflow-visible pl-4 pr-1 pt-1"
+                      >
+                        <Link
+                          href="/chai-gpt/chat"
+                          className="group flex items-center gap-2 px-3 py-1.5 mb-1 rounded-md border border-dashed border-subtle/80 text-txt/80 hover:text-txt hover:bg-subtle/40 hover:border-subtle transition-all"
+                        >
+                          <Plus className="h-3.5 w-3.5 shrink-0 transition-colors" strokeWidth={2.5} />
+                          <span className="text-[12px] font-medium truncate">New Chat</span>
+                        </Link>
+
+                        {/* RENDER CHATS USING THE NEW SUB-COMPONENT */}
+                        {chaiChats.map((chat: any) => (
+                          <ChatListItem key={chat.id} chat={chat} pathname={pathname} />
+                        ))}
+                        
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            }
+
             return (
               <Link key={agent.id} href={agent.href} className={`relative flex shrink-0 items-center rounded-lg ${isCollapsed ? "mx-auto h-11 w-11 justify-center p-0" : "w-full justify-start gap-4 px-3 py-2.5"} ${isActive ? "text-txt" : "text-muted hover:text-txt"}`}>
-                {isActive && (
-                  <motion.div layoutId="active-tab" className="absolute inset-0 rounded-lg border border-subtle bg-panel shadow-sm" transition={{ type: "spring", stiffness: 400, damping: 30 }} />
-                )}
+                {isActive && <motion.div layoutId="active-tab" className="absolute inset-0 rounded-lg border border-subtle bg-panel shadow-sm" transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
                 <Icon className="relative z-10 h-4 w-4 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
                 {!isCollapsed && <span className={`relative z-10 truncate font-sans text-[13px] tracking-wide ${isActive ? "font-semibold" : "font-medium"}`}>{agent.name}</span>}
               </Link>
@@ -87,17 +272,10 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* =======================================
-          BOTTOM SECTION: AUTH & THEME TOGGLE
-          ======================================= */}
-      <div
-        className={`mt-auto shrink-0 flex border-t border-subtle pt-5 transition-all ${isCollapsed ? "flex-col items-center gap-5" : "flex-row items-center justify-between gap-2"
-          }`}
-      >
+      {/* BOTTOM SECTION */}
+      <div className={`mt-auto shrink-0 flex border-t border-subtle pt-5 transition-all ${isCollapsed ? "flex-col items-center gap-5" : "flex-row items-center justify-between gap-2"}`}>
         <div className="flex items-center flex-1 min-w-0 min-h-10">
-
           {!isLoaded ? (
-            // SKELETON LOADER
             <div className={`flex w-full animate-pulse items-center ${isCollapsed ? 'justify-center' : 'px-2 gap-3'}`}>
               <div className="h-8 w-8 rounded-lg bg-subtle shrink-0"></div>
               {!isCollapsed && (
@@ -108,32 +286,16 @@ export default function Sidebar() {
               )}
             </div>
           ) : !isSignedIn ? (
-            // SIGNED OUT STATE
-            <Link
-              href="/login"
-              className={`group flex items-center gap-3 rounded-lg hover:bg-subtle transition-colors flex-1 min-w-0 ${isCollapsed ? "p-2 mx-auto justify-center" : "px-2 py-2"
-                }`}
-            >
+            <Link href="/login" className={`group flex items-center gap-3 rounded-lg hover:bg-subtle transition-colors flex-1 min-w-0 ${isCollapsed ? "p-2 mx-auto justify-center" : "px-2 py-2"}`}>
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-subtle bg-panel shadow-sm">
                 <User className="h-4 w-4 text-muted group-hover:text-txt" />
               </div>
-              {!isCollapsed && (
-                <span className="truncate font-sans text-[13px] font-medium text-muted group-hover:text-txt flex-1 min-w-0">
-                  Sign In
-                </span>
-              )}
+              {!isCollapsed && <span className="truncate font-sans text-[13px] font-medium text-muted group-hover:text-txt flex-1 min-w-0">Sign In</span>}
             </Link>
           ) : (
-            // SIGNED IN STATE
             <div className={`flex flex-row-reverse items-center flex-1 min-w-0 ${isCollapsed ? "justify-center" : "px-2"}`}>
               <div className="shrink-0">
-                <UserButton
-                  appearance={{
-                    elements: {
-                      userButtonAvatarBox: "h-8 w-8 rounded-lg border border-subtle shadow-sm",
-                    },
-                  }}
-                />
+                <UserButton appearance={{ elements: { userButtonAvatarBox: "h-8 w-8 rounded-lg border border-subtle shadow-sm" } }} />
               </div>
               {!isCollapsed && (
                 <div className="ml-3 flex flex-col overflow-hidden flex-1 min-w-0">
@@ -144,8 +306,6 @@ export default function Sidebar() {
             </div>
           )}
         </div>
-
-        {/* Theme Toggle */}
         <div className="shrink-0">
           <ThemeToggle />
         </div>

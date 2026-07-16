@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { clerkClient } from "@clerk/nextjs/server";
 import { WebhookEvent } from "@clerk/nextjs/server";
-import { createUser, deleteUser } from "@/lib/actions/user.actions"
+import { createUser, deleteUser } from "@/lib/actions/user/user.actions"
 
 export async function POST(req: Request) {
   console.log("⚡ WEBHOOK INIT");

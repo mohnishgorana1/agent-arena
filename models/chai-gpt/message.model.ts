@@ -1,3 +1,5 @@
+// /models/message.model.ts
+
 import mongoose, { Document, models, Schema, Types } from "mongoose";
 
 export type MessageRole = "USER" | "ASSISTANT" | "SYSTEM" | "TOOL";
