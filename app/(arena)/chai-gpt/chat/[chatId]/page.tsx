@@ -16,5 +16,5 @@ export default async function ExistingChaiGPTChat({
     redirect("/chai-gpt/chat");
   }
 
-  return <ChatInterface chatId={chatId} initialMessages={result.messages} />;
+  return <ChatInterface chatId={chatId} initialMessages={result.messages} initialTitle={result.title} />;
 }

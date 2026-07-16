@@ -21,15 +21,16 @@ export interface Message {
 interface ChatInterfaceProps {
   chatId?: string;
   initialMessages?: Message[];
+  initialTitle?: string;
 }
 
-export default function ChatInterface({ chatId, initialMessages = [] }: ChatInterfaceProps) {
+export default function ChatInterface({ chatId, initialMessages = [], initialTitle = "New Chat" }: ChatInterfaceProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // TITLE
-  const [chatTitle, setChatTitle] = useState("New Chat");
+  const [chatTitle, setChatTitle] = useState(initialTitle);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -179,7 +180,7 @@ export default function ChatInterface({ chatId, initialMessages = [] }: ChatInte
                     }`}
                   title={chatId ? "Click to rename" : ""}
                 >
-                  {chatId ? (chatTitle !== "New Chat" ? chatTitle : `Chat: ${chatId.substring(0, 8)}...`) : "New Chat"}
+                  {chatId ? chatTitle : "New Chat"}
                 </span>
               )}
             </div>

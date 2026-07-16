@@ -90,14 +90,14 @@ export async function getChatMessagesAction(chatId: string) {
       .sort({ createdAt: 1 })
       .lean();
 
-    // Serialize object for client component
     const messages = dbMessages.map((msg: any) => ({
       id: msg._id.toString(),
       role: msg.role.toLowerCase(), 
       content: msg.content,
     }));
 
-    return { success: true, messages };
+    // ✨ UPDATE: Yahan title bhi return karna hai
+    return { success: true, messages, title: conversation.title };
   } catch (error: any) {
     console.error("Fetch error:", error);
     return { success: false, error: error.message };
