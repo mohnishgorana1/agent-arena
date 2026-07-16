@@ -64,3 +64,42 @@
 button {
   cursor: pointer;
 }
+
+
+.cl-rootBox {
+  padding: 0;
+}
+
+.cl-cardBox {
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+.cl-card {
+  background: none;
+  padding: 0;
+}
+.cl-header {
+  display: hidden;
+}
+
+.cl-internal-1f4p2mz {
+  display: none;
+}
+
+.cl-footer {
+  display: none;
+}
+
+.cl-internal-11tkpc3 {
+  padding: 8px;
+}
+
+.cl-internal-wcdzh5 {
+  width: 70%;
+  margin: 1px auto;
+}
+
+.cl-internal-wcdzh5[data-variant="outline"] {
+  box-shadow: 0px 0px 0px;
+}

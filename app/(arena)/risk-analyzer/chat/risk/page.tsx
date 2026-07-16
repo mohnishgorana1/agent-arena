@@ -27,7 +27,7 @@ export default function RiskAnalyzerPage() {
     setIsProcessing(true);
     setResults(null);
     try {
-      const response = await axios.post("/api/chat/risk", { message });
+      const response = await axios.post("/api/risk-analyzer/risk", { message });
       setResults(response.data);
     } catch (error) {
       console.error(error);
