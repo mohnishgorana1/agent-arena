@@ -31,7 +31,7 @@ export default function ChatInput({ onSendMessage, placeholder = "Enter scenario
 
   return (
     <div className="shrink-0 bg-base p-4 pb-6">
-      <div className="mx-auto w-full max-w-[1600px]">
+      <div className="mx-auto w-full ">
         <form onSubmit={handleSubmit} className="relative flex w-full items-end gap-2 rounded-lg border border-subtle bg-input px-3 py-2.5 focus-within:border-muted transition-colors">
           <textarea
             ref={textareaRef}

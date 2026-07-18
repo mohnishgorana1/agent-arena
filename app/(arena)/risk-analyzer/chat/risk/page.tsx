@@ -5,6 +5,7 @@ import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
 import { ShieldAlert, RefreshCcw, AlertTriangle, CheckCircle2, Activity } from "lucide-react";
 import ChatInput from "@/components/ChatInput";
+import LockedState from "@/components/LockedState";
 
 interface RiskResult {
   isValidScenario: boolean;
@@ -44,6 +45,13 @@ export default function RiskAnalyzerPage() {
       default: return "text-muted border-subtle bg-subtle";
     }
   };
+
+  const IS_LOCKED = true;
+
+  if (IS_LOCKED) {
+    return <LockedState moduleName="Risk Analyzer" />;
+  }
+
 
   return (
     <div className="flex h-full flex-col bg-base overflow-hidden">

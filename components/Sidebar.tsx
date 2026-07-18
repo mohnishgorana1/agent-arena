@@ -7,7 +7,8 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   PanelLeftClose, PanelLeftOpen, ShieldAlert, Layers, HardHat,
   Sprout, BookOpen, User, ChevronDown, Plus, MessageSquare,
-  MoreHorizontal, Pencil, Pin, PinOff, Check, Trash2, AlertTriangle
+  MoreHorizontal, Pencil, Pin, PinOff, Check, Trash2, AlertTriangle,
+  Lock, X // ✨ Added Lock and X imports
 } from "lucide-react";
 import { UserButton, useAuth } from "@clerk/nextjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -20,30 +21,27 @@ import {
 } from "@/lib/actions/chai-gpt/conversation.actions";
 import Logo from "./Logo";
 
+// ✨ Global flag for controlling modules
+const DISABLE_EXTRA_MODULES = true;
+
 const AGENTS = [
-  { id: "risk", name: "Risk Analyzer", icon: ShieldAlert, href: "/risk-analyzer/chat/risk" },
-  { id: "chai-gpt", name: "Chai GPT", icon: Layers, href: "/chai-gpt/chat" },
-  // { id: "struct", name: "Struct Planner", icon: HardHat, href: "/chat/struct" },
-  // { id: "yield", name: "Yield Optimizer", icon: Sprout, href: "/chat/yield" },
-  // { id: "prep", name: "Prep Mentor", icon: BookOpen, href: "/chat/prep" },
+  { id: "consensus", name: "Consensus", icon: HardHat, href: "/consensus", isLocked: false },
+  { id: "risk", name: "Risk Analyzer", icon: ShieldAlert, href: "/risk-analyzer/chat/risk", isLocked: DISABLE_EXTRA_MODULES },
+  { id: "chai-gpt", name: "Chai GPT", icon: Layers, href: "/chai-gpt/chat", isLocked: DISABLE_EXTRA_MODULES },
 ];
 
-// ✨ Naya Sub-component: Har ek chat item ka apna isolated state handle karne ke liye
 function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(chat.title);
-
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
   const queryClient = useQueryClient();
   const isChatActive = pathname === `/chai-gpt/chat/${chat.id}`;
 
-  // Close menu on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
@@ -52,7 +50,6 @@ function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [menuOpen]);
 
-  // Focus input on edit
   useEffect(() => {
     if (isEditing && inputRef.current) inputRef.current.focus();
   }, [isEditing]);
@@ -67,14 +64,10 @@ function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] }),
   });
 
-const deleteMutation = useMutation({
+  const deleteMutation = useMutation({
     mutationFn: async () => deleteChatAction(chat.id),
     onSuccess: () => {
-      // 1. Sidebar se chat hatao
       queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
-      
-      // 2. 🚀 THE FIX: Agar active chat delete ho rahi hai, toh hard redirect karo
-      // pathname aur window.location dono check kar rahe hain taaki replaceState wala URL bhi pakad me aa jaye
       if (pathname.includes(chat.id) || window.location.pathname.includes(chat.id)) {
         window.location.href = "/chai-gpt/chat";
       }
@@ -85,17 +78,15 @@ const deleteMutation = useMutation({
     if (editTitle.trim() && editTitle !== chat.title) {
       renameMutation.mutate(editTitle);
     } else {
-      setEditTitle(chat.title); // reset
+      setEditTitle(chat.title);
     }
     setIsEditing(false);
   };
-
 
   return (
     <>
       <div className="relative group">
         {isEditing ? (
-          // Inline Edit Mode
           <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-subtle bg-panel shadow-sm">
             <input
               ref={inputRef}
@@ -108,7 +99,7 @@ const deleteMutation = useMutation({
               }}
               className="flex-1 min-w-0 bg-transparent text-[12px] text-txt focus:outline-none"
             />
-            <button onClick={handleRenameSubmit} className="text-green-500 hover:text-green-400">
+            <button onClick={handleRenameSubmit} className="text-emerald-500 hover:text-emerald-400">
               <Check className="h-3.5 w-3.5" />
             </button>
             <button onClick={() => { setIsEditing(false); setEditTitle(chat.title); }} className="text-red-500 hover:text-red-400">
@@ -116,7 +107,6 @@ const deleteMutation = useMutation({
             </button>
           </div>
         ) : (
-          // Normal Link View
           <div className={`flex items-center justify-between rounded-md transition-all duration-200 border group-hover:pr-1 ${isChatActive
             ? "bg-panel border-subtle text-txt font-medium shadow-sm"
             : "border-transparent text-muted hover:text-txt hover:bg-subtle/30"
@@ -133,7 +123,6 @@ const deleteMutation = useMutation({
               <span className="text-[12px] truncate">{chat.title}</span>
             </Link>
 
-            {/* 3 Dots Button (Visible on Hover/Active) */}
             <button
               onClick={(e) => {
                 e.preventDefault();
@@ -146,7 +135,6 @@ const deleteMutation = useMutation({
           </div>
         )}
 
-        {/* 3 Dots Dropdown Menu */}
         <AnimatePresence>
           {menuOpen && (
             <motion.div
@@ -228,15 +216,11 @@ const deleteMutation = useMutation({
           </div>
         )}
       </AnimatePresence>
-
     </>
-
-
   );
 }
 
 export default function Sidebar() {
-
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isChaiGptOpen, setIsChaiGptOpen] = useState(false);
   const pathname = usePathname();
@@ -267,7 +251,6 @@ export default function Sidebar() {
             href={"/"}
             className={`transition-all duration-200 ${isCollapsed ? "absolute opacity-100 group-hover:opacity-0 group-hover:pointer-events-none" : "relative opacity-100"}`}
           >
-            {/* ✨ NAYA LOGO COMPONENT */}
             <Logo showText={!isCollapsed} />
           </Link>
 
@@ -289,6 +272,30 @@ export default function Sidebar() {
             const isActive = pathname.startsWith(agent.href);
             const Icon = agent.icon;
 
+            // ✨ STEP 1: Guard check for locked modules
+            if (agent.isLocked) {
+              return (
+                <div
+                  key={agent.id}
+                  className={`group relative flex shrink-0 items-center rounded-lg cursor-not-allowed opacity-60 bg-base/40 border border-transparent ${
+                    isCollapsed ? "mx-auto h-11 w-11 justify-center p-0" : "w-full justify-between gap-4 px-3 py-2.5"
+                  }`}
+                  title="Temporarily disabled for maintenance"
+                >
+                  <div className="flex items-center gap-4 relative z-10">
+                    <Icon className="h-4 w-4 shrink-0 text-muted" strokeWidth={2} />
+                    {!isCollapsed && (
+                      <span className="truncate font-sans text-[13px] font-medium text-muted">
+                        {agent.name}
+                      </span>
+                    )}
+                  </div>
+                  {!isCollapsed && <Lock className="h-3.5 w-3.5 shrink-0 relative z-10 text-muted/50" />}
+                </div>
+              );
+            }
+
+            // STEP 2: Logic for Chai-GPT Accordion (Only runs if NOT locked)
             if (agent.id === "chai-gpt") {
               return (
                 <div key={agent.id} className="flex flex-col gap-1">
@@ -315,8 +322,6 @@ export default function Sidebar() {
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        // Note: overflow-hidden yahan visible rahta hai height animate karte hue
-                        // Dropdown z-index issue fix karne ke liye hum use "overflow-visible" dete hain completion ke baad
                         transition={{ duration: 0.2 }}
                         className="flex flex-col gap-0.5 overflow-visible pl-4 pr-1 pt-1"
                       >
@@ -327,12 +332,9 @@ export default function Sidebar() {
                           <Plus className="h-3.5 w-3.5 shrink-0 transition-colors" strokeWidth={2.5} />
                           <span className="text-[12px] font-medium truncate">New Chat</span>
                         </Link>
-
-                        {/* RENDER CHATS USING THE NEW SUB-COMPONENT */}
                         {chaiChats.map((chat: any) => (
                           <ChatListItem key={chat.id} chat={chat} pathname={pathname} />
                         ))}
-
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -340,6 +342,7 @@ export default function Sidebar() {
               );
             }
 
+            // STEP 3: Normal Links (Consensus Engine, etc.)
             return (
               <Link key={agent.id} href={agent.href} className={`relative flex shrink-0 items-center rounded-lg ${isCollapsed ? "mx-auto h-11 w-11 justify-center p-0" : "w-full justify-start gap-4 px-3 py-2.5"} ${isActive ? "text-txt" : "text-muted hover:text-txt"}`}>
                 {isActive && <motion.div layoutId="active-tab" className="absolute inset-0 rounded-lg border border-subtle bg-panel shadow-sm" transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
