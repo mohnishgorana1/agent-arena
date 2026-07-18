@@ -2,9 +2,10 @@
 
 import React from "react";
 import Link from "next/link";
-import { User, Coffee, ArrowRight } from "lucide-react";
+import { User, ArrowRight } from "lucide-react";
 import { UserButton, useAuth } from "@clerk/nextjs";
 import ThemeToggle from "./themes/ThemeToggle"; 
+import Logo from "./Logo";
 
 export default function Navbar() {
   const { isLoaded, userId } = useAuth();
@@ -13,15 +14,7 @@ export default function Navbar() {
   return (
     <nav className="sticky top-0 z-50 flex h-16 w-full items-center justify-between border-b border-subtle bg-base/80 px-6 backdrop-blur-md">
       {/* Left: Logo */}
-      <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-txt text-base shadow-md">
-          <Coffee className="h-5 w-5" />
-        </div>
-        <span className="font-sans text-[16px] font-bold tracking-tight text-txt">
-          AgentArena
-        </span>
-      </Link>
-
+      <Logo showText={true}/>
       {/* Right: Auth & Theme */}
       <div className="flex items-center gap-4">
         <ThemeToggle />

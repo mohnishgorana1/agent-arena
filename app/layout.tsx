@@ -20,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning className={`${inter.className} flex h-screen w-full overflow-hidden`}>
+      <body suppressHydrationWarning className={`${inter.className} flex h-screen w-full`}>
         <ClerkProvider>
           <QueryProvider>
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
