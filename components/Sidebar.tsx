@@ -18,6 +18,7 @@ import {
   togglePinChatAction,
   deleteChatAction
 } from "@/lib/actions/chai-gpt/conversation.actions";
+import Logo from "./Logo";
 
 const AGENTS = [
   { id: "risk", name: "Risk Analyzer", icon: ShieldAlert, href: "/risk-analyzer/chat/risk" },
@@ -264,10 +265,10 @@ export default function Sidebar() {
         <div className={`group relative flex h-10 shrink-0 items-center ${isCollapsed ? "justify-center" : "justify-between px-1"}`}>
           <Link
             href={"/"}
-            className={`flex items-center gap-3 transition-all duration-200 ${isCollapsed ? "absolute opacity-100 group-hover:opacity-0 group-hover:pointer-events-none" : "relative opacity-100"}`}
+            className={`transition-all duration-200 ${isCollapsed ? "absolute opacity-100 group-hover:opacity-0 group-hover:pointer-events-none" : "relative opacity-100"}`}
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-subtle bg-panel text-sm font-bold text-txt shadow-sm">A</div>
-            {!isCollapsed && <span className="font-sans text-[14px] font-semibold tracking-tight text-txt whitespace-nowrap">AgentArena</span>}
+            {/* ✨ NAYA LOGO COMPONENT */}
+            <Logo showText={!isCollapsed} />
           </Link>
 
           {isCollapsed ? (
