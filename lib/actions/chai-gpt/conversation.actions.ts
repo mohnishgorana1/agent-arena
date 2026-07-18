@@ -35,6 +35,8 @@ export async function createNewChatAction(content: string) {
       await session.commitTransaction();
       session.endSession();
 
+      console.log("new conv", newConversation._id)
+
       return { success: true, chatId: newConversation._id.toString() };
     } catch (transactionError) {
       await session.abortTransaction();
@@ -49,6 +51,7 @@ export async function createNewChatAction(content: string) {
 
 // 2. Add a new user message to an existing chat
 export async function addMessageToChatAction(chatId: string, content: string) {
+  console.log("adding new msg to chat")
   try {
     await dbConnect();
     const mongoUserId = await getMongoUserId();
@@ -67,7 +70,7 @@ export async function addMessageToChatAction(chatId: string, content: string) {
 
     conversation.lastMessageAt = new Date();
     await conversation.save();
-
+    console.log("new msg aadded", newMessage._id)
     return { success: true, messageId: newMessage._id.toString() };
   } catch (error: any) {
     console.error("Failed to add message:", error);
@@ -175,6 +178,44 @@ export async function togglePinChatAction(chatId: string, isPinned: boolean) {
     return { success: true, isPinned: conversation.isPinned };
   } catch (error: any) {
     console.error("Toggle pin chat error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+
+// 7. Delete a conversation and ALL its messages
+export async function deleteChatAction(chatId: string) {
+  try {
+    await dbConnect();
+    const mongoUserId = await getMongoUserId();
+    
+    if (!mongoUserId) return { success: false, error: "Unauthorized" };
+
+    // Pehle check karo ki chat exist karti hai aur isi user ki hai
+    const conversation = await Conversation.findOne({ _id: chatId, userId: mongoUserId });
+    if (!conversation) return { success: false, error: "Chat not found or unauthorized" };
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // 1. Delete all messages associated with this chat
+      await Message.deleteMany({ conversationId: chatId }, { session });
+      
+      // 2. Delete the actual conversation document
+      await Conversation.deleteOne({ _id: chatId }, { session });
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return { success: true };
+    } catch (transactionError) {
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionError;
+    }
+  } catch (error: any) {
+    console.error("Delete chat error:", error);
     return { success: false, error: error.message };
   }
 }

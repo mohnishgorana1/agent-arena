@@ -1,16 +1,17 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { User, Coffee, Bot } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { User, Coffee, Bot, } from "lucide-react";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import ChatInput from "@/components/ChatInput";
 import {
   createNewChatAction,
   addMessageToChatAction,
-  getChatMessagesAction,
   renameChatAction
 } from "@/lib/actions/chai-gpt/conversation.actions";
+import { generateChatResponseAction } from "@/lib/actions/chai-gpt/llm.actions";
 
 export interface Message {
   id: string;
@@ -24,130 +25,140 @@ interface ChatInterfaceProps {
   initialTitle?: string;
 }
 
-export default function ChatInterface({ chatId, initialMessages = [], initialTitle = "New Chat" }: ChatInterfaceProps) {
-  const router = useRouter();
+export default function ChatInterface({
+  chatId,
+  initialMessages = [],
+  initialTitle = "New Chat"
+}: ChatInterfaceProps) {
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // TITLE
+  // ✨ LOCAL STATE FOR INSTANT UI & STREAMING
+  const [currentChatId, setCurrentChatId] = useState<string | undefined>(chatId);
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  // ✨ SYNC STATE ON SIDEBAR NAVIGATION
+  useEffect(() => {
+    setCurrentChatId(chatId);
+    setMessages(initialMessages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
+
+  // TITLE STATE
   const [chatTitle, setChatTitle] = useState(initialTitle);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. Fetch & Cache Messages (TanStack Query)
-  const { data: messages = [] } = useQuery({
-    queryKey: ["chat-messages", chatId],
-    queryFn: async () => {
-      if (!chatId) return [];
-      const result = await getChatMessagesAction(chatId);
-      if (result.success && result.messages) {
-        return result.messages as Message[];
-      }
-      throw new Error(result.error || "Failed to fetch messages");
-    },
-    initialData: initialMessages,
-    enabled: !!chatId, // Nayi chat par fetch run nahi hoga
-    staleTime: 1000 * 60 * 5, // 5 minutes tak cache stale nahi hoga
-  });
-
-  // 2. Handle Sending Messages (TanStack Mutation with Optimistic UI)
-  const mutation = useMutation({
-    mutationFn: async (content: string) => {
-      if (!chatId) {
-        // Create new chat
-        const res = await createNewChatAction(content);
-        if (!res.success) throw new Error(res.error);
-        return { isNew: true, chatId: res.chatId, content };
-      } else {
-        // Add to existing chat
-        const res = await addMessageToChatAction(chatId, content);
-        if (!res.success) throw new Error(res.error);
-        return { isNew: false, content };
-      }
-    },
-    onMutate: async (newContent) => {
-      // Optimistic Update: UI me turant message dikhane ke liye
-      const tempId = `temp_${Date.now()}`;
-      const optimisticMsg: Message = { id: tempId, role: "user", content: newContent };
-
-      if (chatId) {
-        await queryClient.cancelQueries({ queryKey: ["chat-messages", chatId] });
-        const previousMessages = queryClient.getQueryData<Message[]>(["chat-messages", chatId]);
-
-        queryClient.setQueryData<Message[]>(["chat-messages", chatId], (old) => [
-          ...(old || []),
-          optimisticMsg,
-        ]);
-
-        return { previousMessages };
-      }
-    },
-    onSuccess: (data) => {
-      if (data.isNew && data.chatId) {
-        // Nayi chat bani hai, URL redirect karo
-        router.replace(`/chai-gpt/chat/${data.chatId}`);
-      } else if (chatId) {
-        // Existing chat me save ho gaya. Yahan AI response mock kar rahe hain.
-        // LLM integration aane par yahan AI stream trigger hogi.
-        setTimeout(() => {
-          const aiResponse: Message = {
-            id: Date.now().toString(),
-            role: "assistant",
-            content: "TanStack Mutation successful! Database updated.",
-          };
-          queryClient.setQueryData<Message[]>(["chat-messages", chatId], (old) => [
-            ...(old || []),
-            aiResponse,
-          ]);
-        }, 800);
-      }
-    },
-    onError: (err, newContent, context) => {
-      // Agar backend request fail hui, toh optimistic message hata do
-      if (chatId && context?.previousMessages) {
-        queryClient.setQueryData(["chat-messages", chatId], context.previousMessages);
-      }
-      console.error("Message send failed:", err);
-    },
-  });
-
-
-  // Rename Mutation (TanStack Query)
   const renameMutation = useMutation({
     mutationFn: async (newTitle: string) => {
-      if (!chatId) return;
-      const res = await renameChatAction(chatId, newTitle);
+      if (!currentChatId) return;
+      const res = await renameChatAction(currentChatId, newTitle);
       if (!res.success) throw new Error(res.error);
       return res.title;
     },
-    onSuccess: () => {
-      // Sidebar ki list ko refresh karne ke liye query invalidate karo
-      queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] }),
   });
 
   const handleTitleSubmit = () => {
     setIsEditingTitle(false);
-    if (chatTitle.trim() && chatId) {
-      renameMutation.mutate(chatTitle);
+    if (chatTitle.trim() && currentChatId) renameMutation.mutate(chatTitle);
+  };
+
+  useEffect(() => {
+    if (isEditingTitle && titleInputRef.current) titleInputRef.current.focus();
+  }, [isEditingTitle]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isStreaming]);
+
+  // 🚀 SUPER-FAST SEND MESSAGE FUNCTION
+  const handleSendMessage = async (content: string) => {
+    const userMsgId = `user_${Date.now()}`;
+    const aiMsgId = `ai_${Date.now()}`;
+
+    const newUserMsg: Message = { id: userMsgId, role: "user", content };
+    const emptyAiMsg: Message = { id: aiMsgId, role: "assistant", content: "" };
+
+    // Snap current history for LLM BEFORE updating state
+    const historyForLlm = messages.map(m => ({ role: m.role, content: m.content }));
+
+    // 1. Instant Optimistic UI Update
+    setMessages((prev) => [...prev, newUserMsg, emptyAiMsg]);
+    setIsStreaming(true);
+
+    try {
+      let activeChatId = currentChatId;
+      let isNewChat = false;
+
+
+      console.log("activeChatId", activeChatId)
+      // 2. Save to Database
+      if (!activeChatId) {
+        console.log("sending msg", content)
+        const res = await createNewChatAction(content);
+        if (res.success && res.chatId) {
+          activeChatId = res.chatId;
+
+          isNewChat = true;
+
+
+          console.log("success crete new chat actove chat id", activeChatId, "  ++ res.chatId", res.chatId)
+          setCurrentChatId(activeChatId);
+          
+        } else {
+          throw new Error("Failed to create chat");
+        }
+      } else {
+        console.log("adding msg to chat action", activeChatId, content)
+        const res = await addMessageToChatAction(activeChatId, content);
+        if (!res.success) throw new Error("Failed to add message");
+      }
+
+
+      console.log("start llm, stream", activeChatId)
+      // 3. Start LLM Stream
+      const finalHistory = [...historyForLlm, { role: "user", content }];
+      const textStream = await generateChatResponseAction(activeChatId!, finalHistory);
+
+
+      // 4. Update URL & Sidebar - Stream start hone ke baad URL change karo
+      if (isNewChat) {
+        setCurrentChatId(activeChatId);
+        window.history.replaceState(null, "", `/chai-gpt/chat/${activeChatId}`);
+        queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
+      }
+
+
+      // 5. Update AI Message Chunk by Chunk
+      for await (const chunk of textStream) {
+        if (chunk) {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const lastIdx = updated.length - 1;
+            updated[lastIdx] = {
+              ...updated[lastIdx],
+              content: updated[lastIdx].content + chunk
+            };
+            return updated;
+          });
+        }
+      }
+
+      // Refresh sidebar one last time to bump chat to top
+      queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
+
+    } catch (error) {
+      console.error("Chat flow error:", error);
+      setMessages((prev) => prev.filter(msg => msg.id !== aiMsgId));
+    } finally {
+      setIsStreaming(false);
     }
   };
 
-  // Focus effect for rename input
-  useEffect(() => {
-    if (isEditingTitle && titleInputRef.current) {
-      titleInputRef.current.focus();
-    }
-  }, [isEditingTitle]);
-
-  // Auto-scroll effect
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, mutation.isPending]);
-
   return (
     <div className="flex h-full flex-col bg-base overflow-hidden">
-
       {/* HEADER */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-subtle bg-base/80 px-6 backdrop-blur-md">
         <div className="flex items-center gap-3 text-txt">
@@ -155,8 +166,6 @@ export default function ChatInterface({ chatId, initialMessages = [], initialTit
           <div className="flex items-center gap-2 font-sans text-[13px] font-medium tracking-tight">
             <span>Chai GPT</span>
             <span className="text-muted">/</span>
-
-            {/* Inline Rename Logic */}
             <div className="relative flex items-center">
               {isEditingTitle ? (
                 <input
@@ -173,14 +182,11 @@ export default function ChatInterface({ chatId, initialMessages = [], initialTit
                 />
               ) : (
                 <span
-                  onClick={() => {
-                    if (chatId) setIsEditingTitle(true);
-                  }}
-                  className={`px-1.5 py-0.5 rounded border border-transparent truncate max-w-[200px] ${chatId ? "hover:bg-subtle/50 hover:border-subtle cursor-text text-txt" : "text-muted"
-                    }`}
-                  title={chatId ? "Click to rename" : ""}
+                  onClick={() => { if (currentChatId) setIsEditingTitle(true); }}
+                  className={`px-1.5 py-0.5 rounded border border-transparent truncate max-w-[200px] ${currentChatId ? "hover:bg-subtle/50 hover:border-subtle cursor-text text-txt" : "text-muted"}`}
+                  title={currentChatId ? "Click to rename" : ""}
                 >
-                  {chatId ? chatTitle : "New Chat"}
+                  {currentChatId ? chatTitle : "New Chat"}
                 </span>
               )}
             </div>
@@ -204,46 +210,36 @@ export default function ChatInterface({ chatId, initialMessages = [], initialTit
           <div className="flex flex-col pb-8">
             {messages.map((msg) => {
               const isUser = msg.role === "user";
-
               return (
-                <div
-                  key={msg.id}
-                  // REMOVED: bg-panel and border-y for a seamless look
-                  className={`flex w-full ${isUser ? "justify-end px-4 sm:px-8 py-5" : "justify-start px-4 sm:px-8 py-6"}`}
-                >
+                <div key={msg.id} className={`flex w-full ${isUser ? "justify-end px-4 sm:px-8 py-5" : "justify-start px-4 sm:px-8 py-6"}`}>
                   {isUser ? (
-                    // 🧑‍💻 USER MESSAGE 
                     <div className="flex w-full max-w-[80%] sm:max-w-[70%] gap-3 flex-row-reverse items-start">
                       <div className="shrink-0 mt-1">
-                        {/* Clean Avatar */}
                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-subtle text-txt shadow-sm">
                           <User className="h-4 w-4" />
                         </div>
                       </div>
                       <div className="flex flex-col items-end min-w-0">
-                        <span className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted mr-1">
-                          You
-                        </span>
-                        {/* DARK BUBBLE WITH NO BORDER */}
-                        <div className="bg-neutral-800 dark:bg-neutral-700 text-white px-4 py-2.5 rounded-2xl rounded-tr-sm font-sans text-[14px] leading-relaxed break-words shadow-sm">
+                        <span className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted mr-1">You</span>
+                        <div className="bg-neutral-800 dark:bg-neutral-700 text-white px-4 py-2.5 rounded-2xl rounded-tr-sm font-sans text-[14px] leading-relaxed break-words shadow-sm whitespace-pre-wrap">
                           {msg.content}
                         </div>
                       </div>
                     </div>
                   ) : (
-                    // 🤖 GPT MESSAGE (Clean & Seamless)
                     <div className="flex w-full max-w-[95%] xl:max-w-[90%] gap-4 md:gap-5 items-start">
                       <div className="shrink-0 mt-1">
                         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-txt text-base shadow-sm">
-                          <Coffee className="h-4 w-4" />
+                          <Bot className="h-4 w-4" />
                         </div>
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted">
-                          Chai GPT
-                        </span>
+                        <span className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted">Chai GPT</span>
                         <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none font-sans text-[14px] leading-relaxed text-txt break-words mt-1">
-                          {msg.content}
+                          {/* Only parse markdown if the content has loaded completely, or let it parse chunks live! */}
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                       </div>
                     </div>
@@ -252,40 +248,22 @@ export default function ChatInterface({ chatId, initialMessages = [], initialTit
               );
             })}
 
-            {/* Loading Indicator for Mutation */}
-            {mutation.isPending && (
+            {/* Loading Indicator */}
+            {isStreaming && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1].content === "" && (
               <div className="flex w-full justify-start px-4 sm:px-8 py-6">
-                <div className="flex w-full max-w-[95%] xl:max-w-[90%] gap-4 md:gap-5 items-start">
-                  <div className="shrink-0 mt-1">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-txt text-base shadow-sm">
-                      <Bot className="h-4 w-4" />
-                    </div>
-                  </div>
-                  <div className="flex flex-col min-w-0 flex-1 justify-center">
-                    <span className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted">
-                      Chai GPT
-                    </span>
-                    <div className="flex items-center gap-1.5 h-6 mt-1">
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.3s]"></span>
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.15s]"></span>
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted"></span>
-                    </div>
-                  </div>
+                <div className="flex items-center gap-1.5 h-6 mt-1 ml-[52px]">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.3s]"></span>
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.15s]"></span>
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted"></span>
                 </div>
               </div>
             )}
-
             <div ref={messagesEndRef} />
           </div>
         )}
       </div>
 
-      {/* INPUT AREA */}
-      <ChatInput
-        onSendMessage={(content) => mutation.mutate(content)}
-        isLoading={mutation.isPending}
-        placeholder="Message Chai GPT..."
-      />
+      <ChatInput onSendMessage={handleSendMessage} isLoading={isStreaming} placeholder="Message Chai GPT..." />
     </div>
   );
 }

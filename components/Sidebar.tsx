@@ -4,37 +4,41 @@ import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  PanelLeftClose, PanelLeftOpen, ShieldAlert, Layers, HardHat, 
-  Sprout, BookOpen, User, ChevronDown, Plus, MessageSquare, 
-  MoreHorizontal, Pencil, Pin, PinOff, Check, X
+import {
+  PanelLeftClose, PanelLeftOpen, ShieldAlert, Layers, HardHat,
+  Sprout, BookOpen, User, ChevronDown, Plus, MessageSquare,
+  MoreHorizontal, Pencil, Pin, PinOff, Check, Trash2, AlertTriangle
 } from "lucide-react";
 import { UserButton, useAuth } from "@clerk/nextjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import ThemeToggle from "./themes/ThemeToggle";
-import { 
-  getUserConversationsAction, 
-  renameChatAction, 
-  togglePinChatAction 
+import {
+  getUserConversationsAction,
+  renameChatAction,
+  togglePinChatAction,
+  deleteChatAction
 } from "@/lib/actions/chai-gpt/conversation.actions";
 
 const AGENTS = [
   { id: "risk", name: "Risk Analyzer", icon: ShieldAlert, href: "/risk-analyzer/chat/risk" },
   { id: "chai-gpt", name: "Chai GPT", icon: Layers, href: "/chai-gpt/chat" },
-  { id: "struct", name: "Struct Planner", icon: HardHat, href: "/chat/struct" },
-  { id: "yield", name: "Yield Optimizer", icon: Sprout, href: "/chat/yield" },
-  { id: "prep", name: "Prep Mentor", icon: BookOpen, href: "/chat/prep" },
+  // { id: "struct", name: "Struct Planner", icon: HardHat, href: "/chat/struct" },
+  // { id: "yield", name: "Yield Optimizer", icon: Sprout, href: "/chat/yield" },
+  // { id: "prep", name: "Prep Mentor", icon: BookOpen, href: "/chat/prep" },
 ];
 
 // ✨ Naya Sub-component: Har ek chat item ka apna isolated state handle karne ke liye
 function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(chat.title);
-  
+
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  
+
   const queryClient = useQueryClient();
   const isChatActive = pathname === `/chai-gpt/chat/${chat.id}`;
 
@@ -62,6 +66,20 @@ function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] }),
   });
 
+const deleteMutation = useMutation({
+    mutationFn: async () => deleteChatAction(chat.id),
+    onSuccess: () => {
+      // 1. Sidebar se chat hatao
+      queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
+      
+      // 2. 🚀 THE FIX: Agar active chat delete ho rahi hai, toh hard redirect karo
+      // pathname aur window.location dono check kar rahe hain taaki replaceState wala URL bhi pakad me aa jaye
+      if (pathname.includes(chat.id) || window.location.pathname.includes(chat.id)) {
+        window.location.href = "/chai-gpt/chat";
+      }
+    },
+  });
+
   const handleRenameSubmit = () => {
     if (editTitle.trim() && editTitle !== chat.title) {
       renameMutation.mutate(editTitle);
@@ -71,93 +89,153 @@ function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
     setIsEditing(false);
   };
 
+
   return (
-    <div className="relative group">
-      {isEditing ? (
-        // Inline Edit Mode
-        <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-subtle bg-panel shadow-sm">
-          <input
-            ref={inputRef}
-            type="text"
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleRenameSubmit();
-              if (e.key === "Escape") { setIsEditing(false); setEditTitle(chat.title); }
-            }}
-            className="flex-1 min-w-0 bg-transparent text-[12px] text-txt focus:outline-none"
-          />
-          <button onClick={handleRenameSubmit} className="text-green-500 hover:text-green-400">
-            <Check className="h-3.5 w-3.5" />
-          </button>
-          <button onClick={() => { setIsEditing(false); setEditTitle(chat.title); }} className="text-red-500 hover:text-red-400">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ) : (
-        // Normal Link View
-        <div className={`flex items-center justify-between rounded-md transition-all duration-200 border group-hover:pr-1 ${
-          isChatActive
+    <>
+      <div className="relative group">
+        {isEditing ? (
+          // Inline Edit Mode
+          <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-subtle bg-panel shadow-sm">
+            <input
+              ref={inputRef}
+              type="text"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRenameSubmit();
+                if (e.key === "Escape") { setIsEditing(false); setEditTitle(chat.title); }
+              }}
+              className="flex-1 min-w-0 bg-transparent text-[12px] text-txt focus:outline-none"
+            />
+            <button onClick={handleRenameSubmit} className="text-green-500 hover:text-green-400">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => { setIsEditing(false); setEditTitle(chat.title); }} className="text-red-500 hover:text-red-400">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          // Normal Link View
+          <div className={`flex items-center justify-between rounded-md transition-all duration-200 border group-hover:pr-1 ${isChatActive
             ? "bg-panel border-subtle text-txt font-medium shadow-sm"
             : "border-transparent text-muted hover:text-txt hover:bg-subtle/30"
-        }`}>
-          <Link
-            href={`/chai-gpt/chat/${chat.id}`}
-            className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0"
-          >
-            {chat.isPinned ? (
-              <Pin className="h-3 w-3 shrink-0 text-txt rotate-45" />
-            ) : (
-              <MessageSquare className="h-3 w-3 shrink-0" />
-            )}
-            <span className="text-[12px] truncate">{chat.title}</span>
-          </Link>
+            }`}>
+            <Link
+              href={`/chai-gpt/chat/${chat.id}`}
+              className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0"
+            >
+              {chat.isPinned ? (
+                <Pin className="h-3 w-3 shrink-0 text-txt rotate-45" />
+              ) : (
+                <MessageSquare className="h-3 w-3 shrink-0" />
+              )}
+              <span className="text-[12px] truncate">{chat.title}</span>
+            </Link>
 
-          {/* 3 Dots Button (Visible on Hover/Active) */}
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              setMenuOpen(!menuOpen);
-            }}
-            className={`p-1 rounded-md transition-opacity duration-200 ${menuOpen || isChatActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"} hover:bg-subtle`}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+            {/* 3 Dots Button (Visible on Hover/Active) */}
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                setMenuOpen(!menuOpen);
+              }}
+              className={`p-1 rounded-md transition-opacity duration-200 ${menuOpen || isChatActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"} hover:bg-subtle`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
-      {/* 3 Dots Dropdown Menu */}
+        {/* 3 Dots Dropdown Menu */}
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.div
+              ref={menuRef}
+              initial={{ opacity: 0, scale: 0.95, y: -5 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -5 }}
+              transition={{ duration: 0.15 }}
+              className="absolute right-0 top-full mt-1 w-32 rounded-lg border border-subtle bg-panel p-1 shadow-lg z-50 flex flex-col gap-0.5"
+            >
+              <button
+                onClick={() => { setMenuOpen(false); setIsEditing(true); }}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium text-txt hover:bg-subtle transition-colors w-full text-left"
+              >
+                <Pencil className="h-3 w-3" /> Rename
+              </button>
+              <button
+                onClick={() => { setMenuOpen(false); pinMutation.mutate(!chat.isPinned); }}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium text-txt hover:bg-subtle transition-colors w-full text-left"
+              >
+                {chat.isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+                {chat.isPinned ? "Unpin Chat" : "Pin Chat"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  setIsDeleteModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium text-red-500 hover:bg-red-500/10 transition-colors w-full text-left"
+              >
+                <Trash2 className="h-3 w-3" /> Delete Chat
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       <AnimatePresence>
-        {menuOpen && (
-          <motion.div
-            ref={menuRef}
-            initial={{ opacity: 0, scale: 0.95, y: -5 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -5 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-1 w-32 rounded-lg border border-subtle bg-panel p-1 shadow-lg z-50 flex flex-col gap-0.5"
-          >
-            <button
-              onClick={() => { setMenuOpen(false); setIsEditing(true); }}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium text-txt hover:bg-subtle transition-colors w-full text-left"
+        {isDeleteModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+              className="w-full max-w-sm rounded-xl border border-subtle bg-panel p-6 shadow-2xl mx-4"
             >
-              <Pencil className="h-3 w-3" /> Rename
-            </button>
-            <button
-              onClick={() => { setMenuOpen(false); pinMutation.mutate(!chat.isPinned); }}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium text-txt hover:bg-subtle transition-colors w-full text-left"
-            >
-              {chat.isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-              {chat.isPinned ? "Unpin Chat" : "Pin Chat"}
-            </button>
-          </motion.div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/10">
+                  <AlertTriangle className="h-5 w-5 text-red-500" />
+                </div>
+                <h3 className="text-[16px] font-semibold text-txt">Delete Chat?</h3>
+              </div>
+
+              <p className="mb-6 text-[13px] text-muted leading-relaxed">
+                Are you sure you want to delete <span className="font-semibold text-txt">"{chat.title}"</span>? This action cannot be undone and will permanently remove all messages.
+              </p>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="rounded-lg px-4 py-2 text-[13px] font-medium text-txt hover:bg-subtle transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    deleteMutation.mutate();
+                    setIsDeleteModalOpen(false);
+                  }}
+                  disabled={deleteMutation.isPending}
+                  className="rounded-lg bg-red-500 px-4 py-2 text-[13px] font-medium text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? "Deleting..." : "Yes, delete it"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
-    </div>
+
+    </>
+
+
   );
 }
 
 export default function Sidebar() {
+
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isChaiGptOpen, setIsChaiGptOpen] = useState(false);
   const pathname = usePathname();
@@ -205,7 +283,7 @@ export default function Sidebar() {
 
         <div className="flex flex-col gap-2">
           {!isCollapsed && <span className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-widest text-muted shrink-0">Agents</span>}
-          
+
           {AGENTS.map((agent) => {
             const isActive = pathname.startsWith(agent.href);
             const Icon = agent.icon;
@@ -253,7 +331,7 @@ export default function Sidebar() {
                         {chaiChats.map((chat: any) => (
                           <ChatListItem key={chat.id} chat={chat} pathname={pathname} />
                         ))}
-                        
+
                       </motion.div>
                     )}
                   </AnimatePresence>

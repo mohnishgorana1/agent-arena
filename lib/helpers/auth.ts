@@ -3,6 +3,7 @@ import dbConnect from "@/lib/dbConnect";
 import User from "@/models/user/user.model";
 
 export async function getMongoUserId() {
+  console.log("getting mongo user")
   const { userId, sessionClaims } = await auth();
 
   if (!userId) {
