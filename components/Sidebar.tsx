@@ -26,8 +26,8 @@ const DISABLE_EXTRA_MODULES = true;
 
 const AGENTS = [
   { id: "consensus", name: "Consensus", icon: HardHat, href: "/consensus", isLocked: false },
-  { id: "risk", name: "Risk Analyzer", icon: ShieldAlert, href: "/risk-analyzer/chat/risk", isLocked: DISABLE_EXTRA_MODULES },
   { id: "chai-gpt", name: "Chai GPT", icon: Layers, href: "/chai-gpt/chat", isLocked: false },
+  { id: "risk", name: "Risk Analyzer", icon: ShieldAlert, href: "/risk-analyzer/chat/risk", isLocked: DISABLE_EXTRA_MODULES },
 ];
 
 function ChatListItem({ chat, pathname }: { chat: any, pathname: string }) {
