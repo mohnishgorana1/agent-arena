@@ -54,9 +54,7 @@ cd agent-arena
 2. Install dependencies
 Bash
 npm install
-# Note: Syntax highlighting support
-npm install react-syntax-highlighter
-npm install -D @types/react-syntax-highlighter
+
 3. Set up environment variables
 Create a .env.local file in the root directory and add the following keys:
 
