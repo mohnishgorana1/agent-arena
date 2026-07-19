@@ -1,6 +1,4 @@
-// /models/conversation.model.ts
 import mongoose, { Document, models, Schema } from "mongoose";
-
 
 export interface IConversation extends Document {
   userId: mongoose.Types.ObjectId; 
@@ -9,6 +7,9 @@ export interface IConversation extends Document {
   systemPrompt?: string;
   isPinned: boolean;
   isArchived: boolean;
+
+  parentConversationId?: mongoose.Types.ObjectId;
+  branchedFromMessageId?: mongoose.Types.ObjectId;
   lastMessageAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -20,7 +21,7 @@ const conversationSchema = new Schema<IConversation>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true, // Foreign key lookup fast karne ke liye
+      index: true, 
     },
     title: {
       type: String,
@@ -43,6 +44,17 @@ const conversationSchema = new Schema<IConversation>(
       type: Boolean,
       default: false,
     },
+    // Phase 2: Branching Tracking
+    parentConversationId: {
+      type: Schema.Types.ObjectId,
+      ref: "Conversation",
+      default: null,
+    },
+    branchedFromMessageId: {
+      type: Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
+    },
     lastMessageAt: {
       type: Date,
       default: Date.now,
@@ -54,11 +66,11 @@ const conversationSchema = new Schema<IConversation>(
 );
 
 // --- Scalability & Query Performance Indexes ---
-// 1. Sidebar/Chat List Fetching query optimized (Get active, unarchived chats first)
 conversationSchema.index({ userId: 1, isArchived: 1, lastMessageAt: -1 });
-
-// 2. Pinned chats lookup query optimized
 conversationSchema.index({ userId: 1, isPinned: 1, lastMessageAt: -1 });
+
+// Phase 2: Quickly find all branches belonging to a specific parent chat
+conversationSchema.index({ parentConversationId: 1 });
 
 const Conversation = models?.Conversation || mongoose.model<IConversation>("Conversation", conversationSchema);
 export default Conversation;

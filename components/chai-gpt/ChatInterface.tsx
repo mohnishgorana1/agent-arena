@@ -1,17 +1,19 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { User, Coffee, Bot, Globe, Loader2, Copy, Check } from "lucide-react";
+import { User, Coffee, Bot, Globe, Loader2, Copy, Check, GitFork } from "lucide-react";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import ChatInput from "@/components/ChatInput";
+import { useRouter } from "next/navigation";
 import {
   createNewChatAction,
   addMessageToChatAction,
-  renameChatAction
+  renameChatAction,
+  branchChatAction
 } from "@/lib/actions/chai-gpt/conversation.actions";
 import { generateChatResponseAction } from "@/lib/actions/chai-gpt/llm.actions";
 
@@ -31,7 +33,7 @@ interface ChatInterfaceProps {
   initialTitle?: string;
 }
 
-// ✨ Naya CodeBlock Component Copy button aur VS Code theme ke liye
+// VS Code Theme CodeBlock Component
 const CodeBlock = ({ language, value }: { language: string, value: string }) => {
   const [isCopied, setIsCopied] = useState(false);
 
@@ -81,6 +83,7 @@ export default function ChatInterface({
   initialMessages = [],
   initialTitle = "New Chat"
 }: ChatInterfaceProps) {
+  const router = useRouter(); 
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -111,6 +114,20 @@ export default function ChatInterface({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] }),
   });
 
+  // ✨ Phase 2: Chat Branching Mutation
+  const branchMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      if (!currentChatId) return;
+      const res = await branchChatAction(currentChatId, messageId);
+      if (!res.success) throw new Error(res.error);
+      return res.newChatId;
+    },
+    onSuccess: (newChatId) => {
+      queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
+      router.push(`/chai-gpt/chat/${newChatId}`);
+    },
+  });
+
   const handleTitleSubmit = () => {
     setIsEditingTitle(false);
     if (chatTitle.trim() && currentChatId) renameMutation.mutate(chatTitle);
@@ -134,7 +151,6 @@ export default function ChatInterface({
 
     const historyForLlm = messages.map(m => ({ role: m.role, content: m.content }));
 
-    // Optimistic Update
     setMessages((prev) => [...prev, newUserMsg, emptyAiMsg]);
     setIsStreaming(true);
 
@@ -142,7 +158,6 @@ export default function ChatInterface({
       let activeChatId = currentChatId;
       let isNewChat = false;
 
-      // 1. Create or update chat in DB
       if (!activeChatId) {
         const res = await createNewChatAction(content);
         if (res.success && res.chatId) {
@@ -157,17 +172,15 @@ export default function ChatInterface({
         if (!res.success) throw new Error("Failed to add message");
       }
 
-      // 2. Call the backend Action
       const finalHistory = [...historyForLlm, { role: "user", content }];
       const textStream = await generateChatResponseAction(activeChatId!, finalHistory, useWebSearch);
 
-      // 3. Update URL if it's a new chat
       if (isNewChat) {
         window.history.replaceState(null, "", `/chai-gpt/chat/${activeChatId}`);
         queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
       }
 
-      // 4. Custom Stream Parser loop (@openai/agents support)
+      // Custom Stream Parser loop (@openai/agents support)
       for await (const chunkString of textStream) {
         if (!chunkString) continue;
 
@@ -195,6 +208,12 @@ export default function ChatInterface({
                 ...updated[lastIdx],
                 isToolLoading: false
               };
+            } else if (chunk.type === 'message-id') {
+              // ✨ Asli DB ID set kar di taaki branching fail na ho
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                id: chunk.id
+              };
             }
 
             return updated;
@@ -204,7 +223,6 @@ export default function ChatInterface({
         }
       }
 
-      // Refresh Sidebar
       queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
 
     } catch (error) {
@@ -268,8 +286,28 @@ export default function ChatInterface({
           <div className="flex flex-col pb-8">
             {messages.map((msg) => {
               const isUser = msg.role === "user";
+              
+              // ✨ Check for temporary IDs to prevent branch crashes
+              const isTempId = msg.id.startsWith("user_") || msg.id.startsWith("ai_");
+
               return (
-                <div key={msg.id} className={`flex w-full ${isUser ? "justify-end px-4 sm:px-8 py-5" : "justify-start px-4 sm:px-8 py-6"}`}>
+                <div key={msg.id} className={`flex w-full group relative ${isUser ? "justify-end px-4 sm:px-8 py-5" : "justify-start px-4 sm:px-8 py-6"}`}>
+                  
+                  {/* ✨ Phase 2: Branch Button UI */}
+                  {currentChatId && !isStreaming && !isTempId && (
+                    <button
+                      onClick={() => branchMutation.mutate(msg.id)}
+                      disabled={branchMutation.isPending}
+                      className={`absolute top-6 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 px-2 py-1 bg-panel border border-subtle rounded-md text-[11px] font-medium text-muted hover:text-txt shadow-sm z-10 ${
+                        isUser ? "left-8" : "right-8"
+                      }`}
+                      title="Branch chat from this message"
+                    >
+                      {branchMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitFork className="h-3 w-3" />}
+                      Branch
+                    </button>
+                  )}
+
                   {isUser ? (
                     <div className="flex w-full max-w-[80%] sm:max-w-[70%] gap-3 flex-row-reverse items-start">
                       <div className="shrink-0 mt-1">
@@ -294,7 +332,7 @@ export default function ChatInterface({
                       <div className="flex flex-col min-w-0 flex-1">
                         <span className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted">Chai GPT</span>
                         
-                        {/* 🛠️ Tool Execution UI Badge */}
+                        {/* Tool Execution UI Badge */}
                         {msg.toolName && (
                           <div className="flex items-center gap-2 mb-2 mt-1 w-fit px-3 py-1.5 bg-blue-500/10 text-blue-500 rounded-lg text-[12px] font-medium border border-blue-500/20">
                             {msg.isToolLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /> : <Globe className="h-3.5 w-3.5 shrink-0" />}

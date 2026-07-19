@@ -219,3 +219,68 @@ export async function deleteChatAction(chatId: string) {
     return { success: false, error: error.message };
   }
 }
+
+
+// 8. branching
+export async function branchChatAction(oldChatId: string, messageIdToBranchFrom: string) {
+  try {
+    await dbConnect();
+    const mongoUserId = await getMongoUserId();
+    if (!mongoUserId) return { success: false, error: "Unauthorized" };
+
+    // 1. Original conversation find karo
+    const oldConversation = await Conversation.findOne({ _id: oldChatId, userId: mongoUserId });
+    if (!oldConversation) return { success: false, error: "Original chat not found" };
+
+    // 2. Jis message se branch karna hai, usey find karo
+    const branchMessage = await Message.findById(messageIdToBranchFrom);
+    if (!branchMessage) return { success: false, error: "Message not found" };
+
+    // 3. Branching point tak ke saare messages fetch karo (Chronological order me)
+    const messagesToCopy = await Message.find({
+      conversationId: oldChatId,
+      createdAt: { $lte: branchMessage.createdAt } // Is time tak ke saare messages
+    }).sort({ createdAt: 1 }).lean();
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // 4. Ek nayi conversation (Branch) create karo
+      const [newConversation] = await Conversation.create(
+        [{ 
+          userId: mongoUserId, 
+          title: `${oldConversation.title} (Branch)`, 
+          model: oldConversation.model,
+          parentConversationId: oldChatId, // Tracking original chat
+          branchedFromMessageId: messageIdToBranchFrom // Tracking branch point
+        }],
+        { session }
+      );
+
+      // 5. Purane messages ko naye chat id ke sath clone karo
+      const clonedMessages = messagesToCopy.map((msg: any) => ({
+        conversationId: newConversation._id,
+        role: msg.role,
+        content: msg.content,
+        parts: msg.parts,
+        status: msg.status,
+        createdAt: msg.createdAt, // Original timeline maintain karne ke liye
+      }));
+
+      await Message.insertMany(clonedMessages, { session });
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return { success: true, newChatId: newConversation._id.toString() };
+    } catch (transactionError) {
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionError;
+    }
+  } catch (error: any) {
+    console.error("Branching error:", error);
+    return { success: false, error: error.message };
+  }
+}

@@ -97,24 +97,22 @@ export async function generateChatResponseAction(
         await new Promise((resolve) => setTimeout(resolve, 10)); // 10ms delay per chunk
       }
 
-      
+
       // Save final result to DB
       await dbConnect();
-      await Message.create({
+      const savedAiMsg = await Message.create({
         conversationId: chatId,
         role: "ASSISTANT",
         content: finalOutput,
         status: "COMPLETE",
       });
-      await Conversation.findByIdAndUpdate(chatId, {
-        lastMessageAt: new Date(),
-      });
+      await Conversation.findByIdAndUpdate(chatId, { lastMessageAt: new Date() });
+
+      yield JSON.stringify({ type: 'message-id', id: savedAiMsg._id.toString() });
+
     } catch (error: any) {
       console.error("Agent Execution Error:", error);
-      yield JSON.stringify({
-        type: "text-delta",
-        textDelta: "Error generating response.",
-      });
+      yield JSON.stringify({ type: 'text-delta', textDelta: "Error generating response." });
     }
   }
 
