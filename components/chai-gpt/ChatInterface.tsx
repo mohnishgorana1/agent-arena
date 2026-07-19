@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { User, Coffee, Bot, } from "lucide-react";
+import { User, Coffee, Bot, Globe, Loader2, Copy, Check } from "lucide-react";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import ChatInput from "@/components/ChatInput";
 import {
   createNewChatAction,
@@ -13,10 +15,14 @@ import {
 } from "@/lib/actions/chai-gpt/conversation.actions";
 import { generateChatResponseAction } from "@/lib/actions/chai-gpt/llm.actions";
 
+// ✨ UI Types
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  toolName?: string;
+  toolQuery?: string;
+  isToolLoading?: boolean;
 }
 
 interface ChatInterfaceProps {
@@ -24,6 +30,51 @@ interface ChatInterfaceProps {
   initialMessages?: Message[];
   initialTitle?: string;
 }
+
+// ✨ Naya CodeBlock Component Copy button aur VS Code theme ke liye
+const CodeBlock = ({ language, value }: { language: string, value: string }) => {
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(value);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  return (
+    <div className="rounded-lg border border-subtle bg-[#1e1e1e] my-4 overflow-hidden shadow-sm w-full font-sans">
+      <div className="bg-[#2d2d2d] px-4 py-2 text-xs font-mono text-[#a0a0a0] border-b border-subtle flex justify-between items-center select-none">
+        <span className="uppercase tracking-wider font-semibold">{language}</span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 hover:text-white transition-colors focus:outline-none"
+        >
+          {isCopied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-emerald-500" />
+              <span className="text-emerald-500">Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              <span>Copy code</span>
+            </>
+          )}
+        </button>
+      </div>
+      <div className="text-[13px]">
+        <SyntaxHighlighter
+          language={language}
+          style={vscDarkPlus}
+          customStyle={{ margin: 0, padding: '1rem', background: '#1e1e1e' }}
+          PreTag="div"
+        >
+          {value}
+        </SyntaxHighlighter>
+      </div>
+    </div>
+  );
+};
 
 export default function ChatInterface({
   chatId,
@@ -33,23 +84,23 @@ export default function ChatInterface({
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // ✨ LOCAL STATE FOR INSTANT UI & STREAMING
+  // States
   const [currentChatId, setCurrentChatId] = useState<string | undefined>(chatId);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
 
-  // ✨ SYNC STATE ON SIDEBAR NAVIGATION
-  useEffect(() => {
-    setCurrentChatId(chatId);
-    setMessages(initialMessages);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId]);
-
-  // TITLE STATE
+  // Chat Title States
   const [chatTitle, setChatTitle] = useState(initialTitle);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
+  // Sync state when navigating between chats
+  useEffect(() => {
+    setCurrentChatId(chatId);
+    setMessages(initialMessages);
+  }, [chatId]);
+
+  // Rename Chat Logic
   const renameMutation = useMutation({
     mutationFn: async (newTitle: string) => {
       if (!currentChatId) return;
@@ -73,18 +124,17 @@ export default function ChatInterface({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
 
-  // 🚀 SUPER-FAST SEND MESSAGE FUNCTION
-  const handleSendMessage = async (content: string) => {
+  // 🚀 MAIN FUNCTION: Send Message & Handle Custom Stream
+  const handleSendMessage = async (content: string, useWebSearch: boolean) => {
     const userMsgId = `user_${Date.now()}`;
     const aiMsgId = `ai_${Date.now()}`;
 
     const newUserMsg: Message = { id: userMsgId, role: "user", content };
     const emptyAiMsg: Message = { id: aiMsgId, role: "assistant", content: "" };
 
-    // Snap current history for LLM BEFORE updating state
     const historyForLlm = messages.map(m => ({ role: m.role, content: m.content }));
 
-    // 1. Instant Optimistic UI Update
+    // Optimistic Update
     setMessages((prev) => [...prev, newUserMsg, emptyAiMsg]);
     setIsStreaming(true);
 
@@ -92,61 +142,69 @@ export default function ChatInterface({
       let activeChatId = currentChatId;
       let isNewChat = false;
 
-
-      console.log("activeChatId", activeChatId)
-      // 2. Save to Database
+      // 1. Create or update chat in DB
       if (!activeChatId) {
-        console.log("sending msg", content)
         const res = await createNewChatAction(content);
         if (res.success && res.chatId) {
           activeChatId = res.chatId;
-
           isNewChat = true;
-
-
-          console.log("success crete new chat actove chat id", activeChatId, "  ++ res.chatId", res.chatId)
           setCurrentChatId(activeChatId);
-          
         } else {
           throw new Error("Failed to create chat");
         }
       } else {
-        console.log("adding msg to chat action", activeChatId, content)
         const res = await addMessageToChatAction(activeChatId, content);
         if (!res.success) throw new Error("Failed to add message");
       }
 
-
-      console.log("start llm, stream", activeChatId)
-      // 3. Start LLM Stream
+      // 2. Call the backend Action
       const finalHistory = [...historyForLlm, { role: "user", content }];
-      const textStream = await generateChatResponseAction(activeChatId!, finalHistory);
+      const textStream = await generateChatResponseAction(activeChatId!, finalHistory, useWebSearch);
 
-
-      // 4. Update URL & Sidebar - Stream start hone ke baad URL change karo
+      // 3. Update URL if it's a new chat
       if (isNewChat) {
-        setCurrentChatId(activeChatId);
         window.history.replaceState(null, "", `/chai-gpt/chat/${activeChatId}`);
         queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
       }
 
+      // 4. Custom Stream Parser loop (@openai/agents support)
+      for await (const chunkString of textStream) {
+        if (!chunkString) continue;
 
-      // 5. Update AI Message Chunk by Chunk
-      for await (const chunk of textStream) {
-        if (chunk) {
+        try {
+          const chunk = typeof chunkString === "string" ? JSON.parse(chunkString) : chunkString;
+
           setMessages((prev) => {
             const updated = [...prev];
             const lastIdx = updated.length - 1;
-            updated[lastIdx] = {
-              ...updated[lastIdx],
-              content: updated[lastIdx].content + chunk
-            };
+
+            if (chunk.type === 'text-delta') {
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                content: (updated[lastIdx].content || "") + chunk.textDelta
+              };
+            } else if (chunk.type === 'tool-call') {
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                toolName: chunk.toolName,
+                toolQuery: chunk.query || "Searching web...",
+                isToolLoading: true
+              };
+            } else if (chunk.type === 'tool-result') {
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                isToolLoading: false
+              };
+            }
+
             return updated;
           });
+        } catch (e) {
+          console.error("Stream parse error", e, chunkString);
         }
       }
 
-      // Refresh sidebar one last time to bump chat to top
+      // Refresh Sidebar
       queryClient.invalidateQueries({ queryKey: ["conversations", "chai-gpt"] });
 
     } catch (error) {
@@ -203,7 +261,7 @@ export default function ChatInterface({
             </div>
             <h2 className="text-lg font-semibold text-txt">How can I help you today?</h2>
             <p className="mt-2 max-w-sm text-[13px] text-muted">
-              Ask me anything about code refactoring, database schemas, or serverless deployments.
+              Ask me anything about code refactoring, database schemas, or real-time info using the web search tool!
             </p>
           </div>
         ) : (
@@ -235,9 +293,36 @@ export default function ChatInterface({
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
                         <span className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted">Chai GPT</span>
+                        
+                        {/* 🛠️ Tool Execution UI Badge */}
+                        {msg.toolName && (
+                          <div className="flex items-center gap-2 mb-2 mt-1 w-fit px-3 py-1.5 bg-blue-500/10 text-blue-500 rounded-lg text-[12px] font-medium border border-blue-500/20">
+                            {msg.isToolLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /> : <Globe className="h-3.5 w-3.5 shrink-0" />}
+                            <span className="truncate max-w-[300px]">
+                              {msg.isToolLoading ? msg.toolQuery : `Searched web via Tavily`}
+                            </span>
+                          </div>
+                        )}
+
                         <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none font-sans text-[14px] leading-relaxed text-txt break-words mt-1">
-                          {/* Only parse markdown if the content has loaded completely, or let it parse chunks live! */}
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code({ node, inline, className, children, ...props }: any) {
+                                const match = /language-(\w+)/.exec(className || "");
+                                const language = match ? match[1] : "";
+                                const value = String(children).replace(/\n$/, "");
+
+                                return !inline && match ? (
+                                  <CodeBlock language={language} value={value} />
+                                ) : (
+                                  <code className="bg-subtle/50 text-txt px-1.5 py-0.5 rounded-md text-[13px] font-mono border border-subtle/50" {...props}>
+                                    {children}
+                                  </code>
+                                );
+                              }
+                            }}
+                          >
                             {msg.content}
                           </ReactMarkdown>
                         </div>
@@ -248,8 +333,8 @@ export default function ChatInterface({
               );
             })}
 
-            {/* Loading Indicator */}
-            {isStreaming && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1].content === "" && (
+            {/* Waiting for response Loading Indicator */}
+            {isStreaming && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1].content === "" && !messages[messages.length - 1].toolName && (
               <div className="flex w-full justify-start px-4 sm:px-8 py-6">
                 <div className="flex items-center gap-1.5 h-6 mt-1 ml-[52px]">
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.3s]"></span>

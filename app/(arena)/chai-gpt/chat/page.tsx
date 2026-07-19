@@ -7,7 +7,7 @@ export const metadata = {
 };
 
 // TODO: Change later
-const IS_LOCKED = true;
+const IS_LOCKED = false;
 
 
 export default function ChaiGPTPage() {
